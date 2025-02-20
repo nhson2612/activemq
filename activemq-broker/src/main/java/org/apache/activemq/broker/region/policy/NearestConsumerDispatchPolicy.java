@@ -13,7 +13,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class NearestConsumerDispatchPolicy extends SimpleDispatchPolicy {
     private static final Logger LOG = LoggerFactory.getLogger(NearestConsumerDispatchPolicy.class);
-
     private final Map<String, ConsumerTracker> consumerTrackers = new HashMap<>();
     private final AtomicLong dispatchCounter = new AtomicLong(0);
 
@@ -28,25 +27,22 @@ public class NearestConsumerDispatchPolicy extends SimpleDispatchPolicy {
             return false;
         }
 
-        // Tạo tracker cho các consumer nếu chưa có
         for (Subscription sub : consumers) {
             String consumerId = sub.getConsumerInfo().getConsumerId().toString();
             consumerTrackers.putIfAbsent(consumerId, new ConsumerTracker());
         }
 
-        // Chọn consumer tối ưu
         Subscription selectedConsumer = selectOptimalConsumer(consumers, node);
         if (selectedConsumer != null) {
             String consumerId = selectedConsumer.getConsumerInfo().getConsumerId().toString();
             ConsumerTracker tracker = consumerTrackers.get(consumerId);
             if (tracker != null) {
-                tracker.messageDispatched(); // Cập nhật trạng thái của consumer
+                tracker.messageDispatched();
             }
-
             LOG.info("Selected consumer: {}", consumerId);
             return super.dispatch(node, msgContext, Collections.singletonList(selectedConsumer));
         } else {
-            LOG.warn("Fallback to round-robin dispatch");
+            LOG.warn("Fallback to round-robin");
             long count = dispatchCounter.getAndIncrement();
             int index = (int)(count % consumers.size());
             return super.dispatch(node, msgContext, Collections.singletonList(consumers.get(index)));
@@ -65,10 +61,8 @@ public class NearestConsumerDispatchPolicy extends SimpleDispatchPolicy {
             if (tracker == null) {
                 continue;
             }
-
             double score = 0.0;
 
-            // Điểm số ưu tiên theo consumer
             switch (info.getPriority()) {
                 case ConsumerInfo.HIGH_PRIORITY:
                     score -= 5.0;
@@ -80,15 +74,11 @@ public class NearestConsumerDispatchPolicy extends SimpleDispatchPolicy {
                     score += 5.0;
                     break;
             }
-
-            // Điểm số theo tải
             int pendingMessages = sub.getInFlightSize();
             double loadFactor = (double) pendingMessages / Math.max(1, info.getPrefetchSize());
             score += (loadFactor * 15.0);
-
-            // Điểm số theo thời gian chờ
             long timeSinceLastDispatch = tracker.getTimeSinceLastDispatch();
-            score -= timeSinceLastDispatch / 1000.0; // Trừ điểm nếu consumer lâu chưa nhận tin nhắn
+            score -= timeSinceLastDispatch / 1000.0;
 
             scoreMap.put(sub, score);
         }
